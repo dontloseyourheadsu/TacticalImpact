@@ -1,0 +1,39 @@
+[gd_scene load_steps=6 format=3 uid="uid://bjl7opubrxf23"]
+
+[ext_resource type="Script" uid="uid://cslpur3ym66vp" path="res://drone.gd" id="1_7yd7c"]
+[ext_resource type="Shader" uid="uid://bvcvsf0u06ep2" path="res://playground-texture.gdshader" id="2_o1fgs"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_7yd7c"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_y16da"]
+render_priority = 0
+shader = ExtResource("2_o1fgs")
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_o1fgs"]
+size = Vector3(10, 1, 10)
+
+[node name="Node3D" type="Node3D"]
+
+[node name="Drone" type="RigidBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.7570372, 3.2645965, 0)
+script = ExtResource("1_7yd7c")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Drone"]
+shape = SubResource("BoxShape3D_7yd7c")
+
+[node name="CSGBox3D" type="CSGBox3D" parent="Drone"]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.8660254, 0.5, 0, -0.5, 0.8660254, 0, 12.144877, 13.627329)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.70710677, 0.70710677, 0, -0.70710677, 0.70710677, 0, 0, 0)
+
+[node name="Floor" type="StaticBody3D" parent="."]
+
+[node name="CSGBox3D" type="CSGBox3D" parent="Floor"]
+transform = Transform3D(10, 0, 0, 0, 1, 0, 0, 0, 10, 0, 0, 0)
+material = SubResource("ShaderMaterial_y16da")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+shape = SubResource("BoxShape3D_o1fgs")
