@@ -1,21 +1,51 @@
 extends RigidBody3D
 
-var flying_force = Vector3.ZERO
-var target_altitude = 10.0
-var altitude_tolerance = 0.1
-var ascend_force = 15.0
-var descend_force = 0.1
+@export var target_position: Vector3 = Vector3.ZERO
+
+# Orbit variables
+var orbit_center: Vector3 = Vector3.ZERO
+var orbit_radius: float = 0.0
+var orbit_speed: float = 0.0
+var orbit_angle: float = 0.0
+var is_orbiting: bool = false
+
+func _ready():
+	target_position = global_position
+
+func setup_orbit(center: Vector3, radius: float, speed: float, start_angle: float):
+	orbit_center = center
+	orbit_radius = radius
+	orbit_speed = speed
+	orbit_angle = start_angle
+	is_orbiting = true
+	
+	# Set initial position
+	var offset = Vector3(cos(orbit_angle) * orbit_radius, 0, sin(orbit_angle) * orbit_radius)
+	target_position = orbit_center + offset
+	global_position = target_position
 
 func _physics_process(delta):
-	var current_altitude = global_transform.origin.y
-	if current_altitude < target_altitude - altitude_tolerance:
-		flying_force.y = ascend_force
-	elif current_altitude > target_altitude + altitude_tolerance:
-		flying_force.y = -descend_force
-	else:
-		flying_force.y = 0.0
+	if is_orbiting:
+		orbit_angle += orbit_speed * delta
+		var offset = Vector3(cos(orbit_angle) * orbit_radius, 0, sin(orbit_angle) * orbit_radius)
+		target_position = orbit_center + offset
 
-	apply_central_force(flying_force)
+	var error = target_position - global_position
+	
+	var force = Vector3.ZERO
+	
+	# Hover/Anti-gravity (Counteract gravity)
+	var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
+	force.y += mass * gravity
+	
+	# Movement (PD-controller)
+	var desired_velocity = error * 2.0
+	var velocity_diff = desired_velocity - linear_velocity
+	
+	force += velocity_diff * 5.0
+	
+	apply_central_force(force)
 
-func set_target_altitude(altitude):
-	target_altitude = altitude
+func set_target_position(pos: Vector3):
+	target_position = pos
+	is_orbiting = false
