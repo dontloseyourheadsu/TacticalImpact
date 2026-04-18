@@ -21,6 +21,7 @@ public sealed class PlaygroundMode : IGameMode
     private BasicEffect? _effect;
     private VertexPositionColor[] _gridVertices = [];
     private bool _loaded;
+    private MouseState _previousMouseState;
 
     public PlaygroundMode(TacticalImpactGame game)
     {
@@ -32,6 +33,7 @@ public sealed class PlaygroundMode : IGameMode
         _systems.Clear();
         _systems.AddRange(_featureModule.CreateSystems());
         _featureModule.InitializeEntities(_world);
+        _featureModule.SelectionSystem.ClearSelection(_world);
     }
 
     public void LoadContent(ContentManager content, GraphicsDevice graphicsDevice)
@@ -60,8 +62,8 @@ public sealed class PlaygroundMode : IGameMode
             system.Update(_world, deltaTime);
         }
 
-        HandleInteractionInput();
         _camera.Update(gameTime, _game.GraphicsDevice.Viewport);
+        HandleInteractionInput();
     }
 
     public void Draw(GameTime gameTime, GraphicsDevice graphicsDevice)
@@ -101,16 +103,20 @@ public sealed class PlaygroundMode : IGameMode
 
     private void DrawDrones3D(GraphicsDevice graphicsDevice, BasicEffect effect)
     {
-        foreach (var entity in _world.Query<TransformComponent, DroneRenderComponent>())
+        foreach (var entity in _world.Query<TransformComponent, DroneRenderComponent, DroneSelectionComponent>())
         {
             var transform = _world.GetComponent<TransformComponent>(entity);
             var render = _world.GetComponent<DroneRenderComponent>(entity);
+            var selection = _world.GetComponent<DroneSelectionComponent>(entity);
 
             var world = Matrix.CreateScale(render.Size) * Matrix.CreateTranslation(transform.Position);
             effect.World = world;
 
             var intensity = MathHelper.Clamp((transform.Position.Y + 2f) / 4f, 0f, 1f);
-            var color = Color.Lerp(render.BaseColor, Color.White, intensity * 0.45f);
+            var baseColor = selection.IsSelected
+                ? Color.LimeGreen
+                : render.BaseColor;
+            var color = Color.Lerp(baseColor, Color.White, intensity * 0.45f);
             var cubeVertices = BuildUnitCubeVertices(color);
             var cubeIndices = GetUnitCubeIndices();
 
@@ -132,21 +138,68 @@ public sealed class PlaygroundMode : IGameMode
     private void HandleInteractionInput()
     {
         var keyboard = Keyboard.GetState();
+        var mouse = Mouse.GetState();
         var increase = keyboard.IsKeyDown(Keys.R);
         var decrease = keyboard.IsKeyDown(Keys.F);
 
-        if (!increase && !decrease)
+        if (increase || decrease)
+        {
+            const float delta = 0.05f;
+            var amount = increase ? delta : -delta;
+
+            foreach (var entity in _world.Query<DroneMotionComponent>())
+            {
+                var motion = _world.GetComponent<DroneMotionComponent>(entity);
+                motion.MoveDistance = MathHelper.Clamp(motion.MoveDistance + amount, 1.0f, 10.0f);
+            }
+        }
+
+        if (mouse.LeftButton == ButtonState.Pressed && _previousMouseState.LeftButton == ButtonState.Released)
+        {
+            ProcessLeftClick(mouse.Position);
+        }
+
+        if (mouse.RightButton == ButtonState.Pressed && _previousMouseState.RightButton == ButtonState.Released)
+        {
+            _featureModule.SelectionSystem.ClearSelection(_world);
+        }
+
+        _previousMouseState = mouse;
+    }
+
+    private void ProcessLeftClick(Point pointerPosition)
+    {
+        var viewport = _game.GraphicsDevice.Viewport;
+        var nearPoint = viewport.Unproject(
+            new Vector3(pointerPosition.X, pointerPosition.Y, 0f),
+            _camera.Projection,
+            _camera.View,
+            Matrix.Identity);
+        var farPoint = viewport.Unproject(
+            new Vector3(pointerPosition.X, pointerPosition.Y, 1f),
+            _camera.Projection,
+            _camera.View,
+            Matrix.Identity);
+
+        var rayDirection = farPoint - nearPoint;
+        if (rayDirection.LengthSquared() <= float.Epsilon)
         {
             return;
         }
 
-        const float delta = 0.05f;
-        var amount = increase ? delta : -delta;
+        var ray = new Ray(nearPoint, Vector3.Normalize(rayDirection));
 
-        foreach (var entity in _world.Query<DroneMotionComponent>())
+        if (DronePickingHelper.TryPickDrone(_world, ray, out var pickedDrone))
         {
-            var motion = _world.GetComponent<DroneMotionComponent>(entity);
-            motion.MoveDistance = MathHelper.Clamp(motion.MoveDistance + amount, 1.0f, 10.0f);
+            _featureModule.SelectionSystem.Select(_world, pickedDrone);
+            return;
+        }
+
+        if (DronePickingHelper.TryIntersectGround(ray, out var groundPoint))
+        {
+            _featureModule.CommandSystem.QueueMoveCommand(
+                groundPoint,
+                _featureModule.SelectionSystem.HasSelection);
         }
     }
 

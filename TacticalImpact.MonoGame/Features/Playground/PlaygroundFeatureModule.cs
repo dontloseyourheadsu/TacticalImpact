@@ -7,12 +7,18 @@ namespace TacticalImpact.MonoGame.Features.Playground;
 
 public sealed class PlaygroundFeatureModule
 {
+    public DroneSelectionSystem SelectionSystem { get; } = new();
+    public DroneCommandSystem CommandSystem { get; } = new(2f);
+
     public IReadOnlyList<ISystem> CreateSystems()
     {
         return
         [
+            SelectionSystem,
+            CommandSystem,
             new DroneGroupMovementSystem(),
-            new DronePhysicsSystem()
+            new DronePhysicsSystem(),
+            new DroneCollisionResolutionSystem()
         ];
     }
 
@@ -52,6 +58,16 @@ public sealed class PlaygroundFeatureModule
         {
             Size = 0.8f,
             BaseColor = new Color(79, 177, 255)
+        });
+        world.AddComponent(entity, new CollisionComponent
+        {
+            Layer = 1,
+            CollidesWithMask = 1,
+            Radius = 0.55f
+        });
+        world.AddComponent(entity, new DroneSelectionComponent
+        {
+            IsSelected = false
         });
     }
 }
