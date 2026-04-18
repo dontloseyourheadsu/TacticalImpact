@@ -20,6 +20,8 @@ public sealed class PlaygroundMode : IGameMode
 
     private BasicEffect? _effect;
     private VertexPositionColor[] _gridVertices = [];
+    private Vector3[] _unitSpherePositions = [];
+    private short[] _unitSphereIndices = [];
     private bool _loaded;
     private MouseState _previousMouseState;
 
@@ -45,6 +47,7 @@ public sealed class PlaygroundMode : IGameMode
         };
 
         _gridVertices = BuildGridVertices(30, 1f, new Color(35, 55, 110));
+        BuildUnitSphereMesh(8, 12, out _unitSpherePositions, out _unitSphereIndices);
         _loaded = true;
     }
 
@@ -93,6 +96,7 @@ public sealed class PlaygroundMode : IGameMode
         }
 
         DrawDrones3D(graphicsDevice, _effect);
+        DrawProjectiles3D(graphicsDevice, _effect);
     }
 
     public void Dispose()
@@ -161,6 +165,11 @@ public sealed class PlaygroundMode : IGameMode
 
         if (mouse.RightButton == ButtonState.Pressed && _previousMouseState.RightButton == ButtonState.Released)
         {
+            ProcessRightClick(mouse.Position);
+        }
+
+        if (mouse.MiddleButton == ButtonState.Pressed && _previousMouseState.MiddleButton == ButtonState.Released)
+        {
             _featureModule.SelectionSystem.ClearSelection(_world);
         }
 
@@ -201,6 +210,37 @@ public sealed class PlaygroundMode : IGameMode
                 groundPoint,
                 _featureModule.SelectionSystem.HasSelection);
         }
+    }
+
+    private void ProcessRightClick(Point pointerPosition)
+    {
+        var viewport = _game.GraphicsDevice.Viewport;
+        var nearPoint = viewport.Unproject(
+            new Vector3(pointerPosition.X, pointerPosition.Y, 0f),
+            _camera.Projection,
+            _camera.View,
+            Matrix.Identity);
+        var farPoint = viewport.Unproject(
+            new Vector3(pointerPosition.X, pointerPosition.Y, 1f),
+            _camera.Projection,
+            _camera.View,
+            Matrix.Identity);
+
+        var rayDirection = farPoint - nearPoint;
+        if (rayDirection.LengthSquared() <= float.Epsilon)
+        {
+            return;
+        }
+
+        var ray = new Ray(nearPoint, Vector3.Normalize(rayDirection));
+        if (!DronePickingHelper.TryIntersectGround(ray, out var groundPoint))
+        {
+            return;
+        }
+
+        _featureModule.ShootingSystem.QueueShootCommand(
+            new Vector3(groundPoint.X, 1f, groundPoint.Z),
+            _featureModule.SelectionSystem.HasSelection);
     }
 
     private static VertexPositionColor[] BuildGridVertices(int halfExtent, float spacing, Color color)
@@ -248,5 +288,89 @@ public sealed class PlaygroundMode : IGameMode
             2, 6, 7, 2, 7, 3,
             3, 7, 4, 3, 4, 0
         ];
+    }
+
+    private void DrawProjectiles3D(GraphicsDevice graphicsDevice, BasicEffect effect)
+    {
+        if (_unitSpherePositions.Length == 0 || _unitSphereIndices.Length == 0)
+        {
+            return;
+        }
+
+        foreach (var entity in _world.Query<TransformComponent, ProjectileRenderComponent, ProjectileComponent>())
+        {
+            var transform = _world.GetComponent<TransformComponent>(entity);
+            var render = _world.GetComponent<ProjectileRenderComponent>(entity);
+
+            effect.World = Matrix.CreateScale(render.Radius) * Matrix.CreateTranslation(transform.Position);
+            var vertices = BuildSphereVertices(render.Color);
+
+            foreach (var pass in effect.CurrentTechnique.Passes)
+            {
+                pass.Apply();
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    PrimitiveType.TriangleList,
+                    vertices,
+                    0,
+                    vertices.Length,
+                    _unitSphereIndices,
+                    0,
+                    _unitSphereIndices.Length / 3);
+            }
+        }
+    }
+
+    private VertexPositionColor[] BuildSphereVertices(Color color)
+    {
+        var vertices = new VertexPositionColor[_unitSpherePositions.Length];
+        for (var i = 0; i < _unitSpherePositions.Length; i++)
+        {
+            vertices[i] = new VertexPositionColor(_unitSpherePositions[i], color);
+        }
+
+        return vertices;
+    }
+
+    private static void BuildUnitSphereMesh(int stacks, int slices, out Vector3[] positions, out short[] indices)
+    {
+        var pos = new List<Vector3>((stacks + 1) * (slices + 1));
+        var idx = new List<short>(stacks * slices * 6);
+
+        for (var stack = 0; stack <= stacks; stack++)
+        {
+            var v = stack / (float)stacks;
+            var phi = MathF.PI * v;
+            var y = MathF.Cos(phi);
+            var r = MathF.Sin(phi);
+
+            for (var slice = 0; slice <= slices; slice++)
+            {
+                var u = slice / (float)slices;
+                var theta = MathHelper.TwoPi * u;
+                var x = r * MathF.Cos(theta);
+                var z = r * MathF.Sin(theta);
+                pos.Add(new Vector3(x, y, z));
+            }
+        }
+
+        for (var stack = 0; stack < stacks; stack++)
+        {
+            for (var slice = 0; slice < slices; slice++)
+            {
+                var first = (short)(stack * (slices + 1) + slice);
+                var second = (short)(first + slices + 1);
+
+                idx.Add(first);
+                idx.Add(second);
+                idx.Add((short)(first + 1));
+
+                idx.Add(second);
+                idx.Add((short)(second + 1));
+                idx.Add((short)(first + 1));
+            }
+        }
+
+        positions = [.. pos];
+        indices = [.. idx];
     }
 }
