@@ -9,6 +9,7 @@ public sealed class PlaygroundFeatureModule
 {
     public DroneSelectionSystem SelectionSystem { get; } = new();
     public DroneCommandSystem CommandSystem { get; } = new(2f);
+    public DroneShootingSystem ShootingSystem { get; } = new();
 
     public IReadOnlyList<ISystem> CreateSystems()
     {
@@ -16,9 +17,12 @@ public sealed class PlaygroundFeatureModule
         [
             SelectionSystem,
             CommandSystem,
+            ShootingSystem,
             new DroneGroupMovementSystem(),
             new DronePhysicsSystem(),
-            new DroneCollisionResolutionSystem()
+            new DroneCollisionResolutionSystem(),
+            new ProjectileMovementSystem(),
+            new ProjectileLifetimeSystem()
         ];
     }
 
@@ -68,6 +72,14 @@ public sealed class PlaygroundFeatureModule
         world.AddComponent(entity, new DroneSelectionComponent
         {
             IsSelected = false
+        });
+        world.AddComponent(entity, new WeaponComponent
+        {
+            CooldownSeconds = 0.35f,
+            ProjectileSpeed = 16f,
+            ProjectileLifeSeconds = 2.25f,
+            MuzzleHeight = 0.35f,
+            CooldownRemaining = 0f
         });
     }
 }
