@@ -9,6 +9,7 @@ public sealed class PlaygroundFeatureModule
 {
     public DroneSelectionSystem SelectionSystem { get; } = new();
     public DroneCommandSystem CommandSystem { get; } = new(2f);
+    public DronePackageCarrySystem PackageCarrySystem { get; } = new();
     public DroneShootingSystem ShootingSystem { get; } = new();
 
     public IReadOnlyList<ISystem> CreateSystems()
@@ -17,6 +18,7 @@ public sealed class PlaygroundFeatureModule
         [
             SelectionSystem,
             CommandSystem,
+            PackageCarrySystem,
             ShootingSystem,
             new DroneGroupMovementSystem(),
             new DronePhysicsSystem(),
@@ -31,6 +33,10 @@ public sealed class PlaygroundFeatureModule
         SpawnDrone(world, new Vector3(-3f, 2f, 0f), 0f);
         SpawnDrone(world, new Vector3(0f, 2f, 0f), 0f);
         SpawnDrone(world, new Vector3(3f, 2f, 0f), 0f);
+
+        SpawnPackage(world, new Vector3(-5f, 0f, 3f));
+        SpawnPackage(world, new Vector3(0f, 0f, 5f));
+        SpawnPackage(world, new Vector3(5f, 0f, -2f));
     }
 
     private static void SpawnDrone(EcsWorld world, Vector3 startPosition, float timeOffset)
@@ -73,6 +79,10 @@ public sealed class PlaygroundFeatureModule
         {
             IsSelected = false
         });
+        world.AddComponent(entity, new DroneCarryComponent
+        {
+            CarryTargetPosition = startPosition
+        });
         world.AddComponent(entity, new WeaponComponent
         {
             CooldownSeconds = 0.35f,
@@ -81,5 +91,21 @@ public sealed class PlaygroundFeatureModule
             MuzzleHeight = 0.35f,
             CooldownRemaining = 0f
         });
+    }
+
+    private static void SpawnPackage(EcsWorld world, Vector3 groundPosition)
+    {
+        var render = new PackageRenderComponent();
+        var packageHalfHeight = render.Size.Y * 0.5f;
+        var placedPosition = new Vector3(groundPosition.X, packageHalfHeight, groundPosition.Z);
+
+        var entity = world.CreateEntity();
+        world.AddComponent(entity, new TransformComponent
+        {
+            BasePosition = placedPosition,
+            Position = placedPosition
+        });
+        world.AddComponent(entity, new PackageComponent());
+        world.AddComponent(entity, render);
     }
 }
