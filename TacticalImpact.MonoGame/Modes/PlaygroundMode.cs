@@ -24,6 +24,9 @@ public sealed class PlaygroundMode : IGameMode
     private short[] _unitSphereIndices = [];
     private bool _loaded;
     private MouseState _previousMouseState;
+    private double _totalTimeSeconds;
+    private double _lastLeftClickTimeSeconds = -5d;
+    private Point _lastLeftClickPosition;
 
     public PlaygroundMode(TacticalImpactGame game)
     {
@@ -58,6 +61,7 @@ public sealed class PlaygroundMode : IGameMode
             return;
         }
 
+        _totalTimeSeconds = gameTime.TotalGameTime.TotalSeconds;
         var deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
         foreach (var system in _systems)
@@ -96,6 +100,7 @@ public sealed class PlaygroundMode : IGameMode
         }
 
         DrawDrones3D(graphicsDevice, _effect);
+        DrawPackages3D(graphicsDevice, _effect);
         DrawProjectiles3D(graphicsDevice, _effect);
     }
 
@@ -160,7 +165,7 @@ public sealed class PlaygroundMode : IGameMode
 
         if (mouse.LeftButton == ButtonState.Pressed && _previousMouseState.LeftButton == ButtonState.Released)
         {
-            ProcessLeftClick(mouse.Position);
+            ProcessLeftClick(mouse.Position, IsDoubleClick(mouse.Position));
         }
 
         if (mouse.RightButton == ButtonState.Pressed && _previousMouseState.RightButton == ButtonState.Released)
@@ -176,7 +181,7 @@ public sealed class PlaygroundMode : IGameMode
         _previousMouseState = mouse;
     }
 
-    private void ProcessLeftClick(Point pointerPosition)
+    private void ProcessLeftClick(Point pointerPosition, bool isDoubleClick)
     {
         var viewport = _game.GraphicsDevice.Viewport;
         var nearPoint = viewport.Unproject(
@@ -204,11 +209,90 @@ public sealed class PlaygroundMode : IGameMode
             return;
         }
 
+        var selectedDrone = GetSelectedDroneEntity();
+        if (selectedDrone != -1 &&
+            DronePickingHelper.TryPickPackage(_world, ray, out var pickedPackage) &&
+            !_featureModule.PackageCarrySystem.IsDroneCarryingPackage(_world, selectedDrone))
+        {
+            _featureModule.PackageCarrySystem.QueuePickupCommand(selectedDrone, pickedPackage);
+            return;
+        }
+
         if (DronePickingHelper.TryIntersectGround(ray, out var groundPoint))
         {
+            if (selectedDrone != -1 && _featureModule.PackageCarrySystem.IsDroneCarryingPackage(_world, selectedDrone))
+            {
+                _featureModule.PackageCarrySystem.QueueCarryMoveCommand(
+                    groundPoint,
+                    true,
+                    isDoubleClick);
+                return;
+            }
+
             _featureModule.CommandSystem.QueueMoveCommand(
                 groundPoint,
                 _featureModule.SelectionSystem.HasSelection);
+        }
+    }
+
+    private bool IsDoubleClick(Point clickPosition)
+    {
+        var clickDeltaTime = _totalTimeSeconds - _lastLeftClickTimeSeconds;
+        var clickDeltaX = clickPosition.X - _lastLeftClickPosition.X;
+        var clickDeltaY = clickPosition.Y - _lastLeftClickPosition.Y;
+        var closeEnough = clickDeltaX * clickDeltaX + clickDeltaY * clickDeltaY <= 24 * 24;
+        var isDoubleClick = clickDeltaTime <= 0.35d && closeEnough;
+
+        _lastLeftClickTimeSeconds = _totalTimeSeconds;
+        _lastLeftClickPosition = clickPosition;
+
+        return isDoubleClick;
+    }
+
+    private int GetSelectedDroneEntity()
+    {
+        foreach (var entity in _world.Query<DroneSelectionComponent>())
+        {
+            var selection = _world.GetComponent<DroneSelectionComponent>(entity);
+            if (selection.IsSelected)
+            {
+                return entity;
+            }
+        }
+
+        return -1;
+    }
+
+    private void DrawPackages3D(GraphicsDevice graphicsDevice, BasicEffect effect)
+    {
+        foreach (var entity in _world.Query<TransformComponent, PackageRenderComponent, PackageComponent>())
+        {
+            var transform = _world.GetComponent<TransformComponent>(entity);
+            var render = _world.GetComponent<PackageRenderComponent>(entity);
+            var package = _world.GetComponent<PackageComponent>(entity);
+
+            var world = Matrix.CreateScale(render.Size) * Matrix.CreateTranslation(transform.Position);
+            effect.World = world;
+
+            var baseColor = package.IsCarried
+                ? Color.Lerp(render.BaseColor, Color.LightGoldenrodYellow, 0.6f)
+                : render.BaseColor;
+
+            var cubeVertices = BuildUnitCubeVertices(baseColor);
+            var cubeIndices = GetUnitCubeIndices();
+
+            foreach (var pass in effect.CurrentTechnique.Passes)
+            {
+                pass.Apply();
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    PrimitiveType.TriangleList,
+                    cubeVertices,
+                    0,
+                    cubeVertices.Length,
+                    cubeIndices,
+                    0,
+                    cubeIndices.Length / 3);
+            }
         }
     }
 

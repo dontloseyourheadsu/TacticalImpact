@@ -31,6 +31,37 @@ public static class DronePickingHelper
         return pickedDrone != -1;
     }
 
+    public static bool TryPickPackage(EcsWorld world, Ray ray, out int pickedPackage)
+    {
+        pickedPackage = -1;
+        var closestDistance = float.MaxValue;
+
+        foreach (var entity in world.Query<TransformComponent, PackageRenderComponent, PackageComponent>())
+        {
+            var package = world.GetComponent<PackageComponent>(entity);
+            if (package.IsCarried)
+            {
+                continue;
+            }
+
+            var transform = world.GetComponent<TransformComponent>(entity);
+            var render = world.GetComponent<PackageRenderComponent>(entity);
+            var halfExtent = render.Size * 0.5f;
+            var bounds = new BoundingBox(transform.Position - halfExtent, transform.Position + halfExtent);
+            var hitDistance = ray.Intersects(bounds);
+
+            if (!hitDistance.HasValue || hitDistance.Value >= closestDistance)
+            {
+                continue;
+            }
+
+            closestDistance = hitDistance.Value;
+            pickedPackage = entity;
+        }
+
+        return pickedPackage != -1;
+    }
+
     public static bool TryIntersectGround(Ray ray, out Vector3 point)
     {
         point = Vector3.Zero;
