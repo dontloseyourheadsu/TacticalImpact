@@ -26,9 +26,11 @@ public sealed class DroneGroupMovementSystem : ISystem
             var motion = world.GetComponent<DroneMotionComponent>(entity);
             var target = world.GetComponent<DroneTargetComponent>(entity);
 
-            var zOffset = MathF.Sin((_timePassed + motion.TimeOffset) * motion.MoveSpeed) * motion.MoveDistance;
-            var yOffset = MathF.Sin((_timePassed + motion.TimeOffset) * motion.FloatSpeed) * motion.FloatAmplitude;
-            var movementVector = new Vector3(0f, yOffset, zOffset);
+            var t = _timePassed + motion.TimeOffset;
+            var xOffset = MathF.Sin(t * motion.MoveSpeed) * motion.MoveDistance;
+            var zOffset = MathF.Cos(t * (motion.MoveSpeed * 0.87f) + motion.TimeOffset * 1.3f) * (motion.MoveDistance * 0.85f);
+            var yOffset = MathF.Sin(t * motion.FloatSpeed) * motion.FloatAmplitude;
+            var movementVector = new Vector3(xOffset, yOffset, zOffset);
 
             target.TargetPosition = transform.BasePosition + movementVector;
         }

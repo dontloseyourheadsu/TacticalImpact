@@ -18,6 +18,8 @@ public sealed class DronePhysicsSystem : ISystem
 
             var acceleration = velocityDiff * physics.VelocityGain;
             physics.Velocity += acceleration * deltaTimeSeconds;
+            var dampingFactor = MathF.Exp(-physics.LinearDamping * deltaTimeSeconds);
+            physics.Velocity *= dampingFactor;
             transform.Position += physics.Velocity * deltaTimeSeconds;
         }
     }
