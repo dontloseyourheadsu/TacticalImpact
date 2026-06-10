@@ -27,7 +27,8 @@ public sealed class PlaygroundFeatureModule
             new ProjectileMovementSystem(),
             new ProjectileLifetimeSystem(),
             new ProjectileCollisionSystem(),
-            new DroneStatsUpdateSystem()
+            new DroneStatsUpdateSystem(),
+            new ExplosionUpdateSystem()
         ];
     }
 
