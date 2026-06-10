@@ -108,6 +108,7 @@ public sealed class PlaygroundMode : IGameMode
         DrawDroneGroundIndicators3D(graphicsDevice, _effect);
         DrawPackages3D(graphicsDevice, _effect);
         DrawProjectiles3D(graphicsDevice, _effect);
+        DrawExplosions3D(graphicsDevice, _effect);
         DrawDroneScreenMarkers(graphicsDevice);
         DrawPackageScreenMarkers(graphicsDevice);
     }
@@ -398,6 +399,17 @@ public sealed class PlaygroundMode : IGameMode
         }
     }
 
+    private void DrawBorderedRectangle(SpriteBatch spriteBatch, Rectangle rect, int borderThickness, Color fillColor, Color borderColor)
+    {
+        _primitiveRenderer.FillRectangle(spriteBatch, rect, borderColor);
+        var innerRect = new Rectangle(
+            rect.X + borderThickness,
+            rect.Y + borderThickness,
+            rect.Width - borderThickness * 2,
+            rect.Height - borderThickness * 2);
+        _primitiveRenderer.FillRectangle(spriteBatch, innerRect, fillColor);
+    }
+
     private void DrawDroneScreenMarkers(GraphicsDevice graphicsDevice)
     {
         if (_spriteBatch is null)
@@ -423,6 +435,61 @@ public sealed class PlaygroundMode : IGameMode
             var marker = new Rectangle((int)projected.X - 4, (int)projected.Y - 4, 8, 8);
             _primitiveRenderer.FillRectangle(_spriteBatch, marker, markerColor * 0.95f);
 
+            // Draw Health, Shield, and Blinding status HUD indicators above the drone
+            if (_world.HasComponent<DroneStatsComponent>(entity))
+            {
+                var stats = _world.GetComponent<DroneStatsComponent>(entity);
+                
+                var barWidth = 36;
+                var barHeight = 4;
+                var startX = (int)projected.X - barWidth / 2;
+                var startY = (int)projected.Y - 18;
+
+                // 1. Health Bar
+                var healthBg = new Rectangle(startX, startY, barWidth, barHeight);
+                var healthFillWidth = (int)(barWidth * MathHelper.Clamp(stats.CurrentHealth / stats.MaxHealth, 0f, 1f));
+                var healthFill = new Rectangle(startX, startY, healthFillWidth, barHeight);
+                
+                _primitiveRenderer.FillRectangle(_spriteBatch, healthBg, new Color(40, 40, 40) * 0.8f);
+                _primitiveRenderer.FillRectangle(_spriteBatch, healthFill, new Color(50, 220, 80));
+
+                // 2. Shield Bar (only if drone has shields)
+                if (stats.MaxShield > 0f)
+                {
+                    var shieldBg = new Rectangle(startX, startY - 5, barWidth, barHeight);
+                    var shieldFillWidth = (int)(barWidth * MathHelper.Clamp(stats.CurrentShield / stats.MaxShield, 0f, 1f));
+                    var shieldFill = new Rectangle(startX, startY - 5, shieldFillWidth, barHeight);
+
+                    _primitiveRenderer.FillRectangle(_spriteBatch, shieldBg, new Color(40, 40, 40) * 0.8f);
+                    _primitiveRenderer.FillRectangle(_spriteBatch, shieldFill, new Color(50, 150, 255));
+                }
+
+                // 3. Sensor Blinding / Lidar Warning indicator
+                if (_world.HasComponent<DroneSensorComponent>(entity))
+                {
+                    var sensor = _world.GetComponent<DroneSensorComponent>(entity);
+                    if (sensor.BlindedDurationRemaining > 0f)
+                    {
+                        var indicatorY = startY - 11;
+                        if (sensor.ActiveSensor == SensorType.LidarScanner)
+                        {
+                            // Lidar backup active: Draw small violet indicator dot
+                            var backupIndicator = new Rectangle((int)projected.X - 3, indicatorY, 6, 6);
+                            _primitiveRenderer.FillRectangle(_spriteBatch, backupIndicator, new Color(180, 80, 255));
+                        }
+                        else if (sensor.IsFullyBlinded)
+                        {
+                            // Fully blinded: Draw flashing yellow warning rectangle
+                            var isFlashOn = ((int)(_totalTimeSeconds * 6f) % 2) == 0;
+                            var warningColor = isFlashOn ? new Color(255, 230, 40) : new Color(120, 100, 20);
+                            
+                            var warningRect = new Rectangle((int)projected.X - 3, indicatorY, 6, 6);
+                            _primitiveRenderer.FillRectangle(_spriteBatch, warningRect, warningColor);
+                        }
+                    }
+                }
+            }
+
             var projectedGround = viewport.Project(
                 new Vector3(transform.Position.X, 0f, transform.Position.Z),
                 _camera.Projection,
@@ -436,7 +503,117 @@ public sealed class PlaygroundMode : IGameMode
             }
         }
 
+        // Draw Wind HUD
+        DrawWindHUD(graphicsDevice);
+
         _spriteBatch.End();
+    }
+
+    private void DrawWindHUD(GraphicsDevice graphicsDevice)
+    {
+        var viewport = graphicsDevice.Viewport;
+        var boxWidth = 140;
+        var boxHeight = 60;
+        var x = viewport.Width - boxWidth - 10;
+        var y = 10;
+
+        var backgroundRect = new Rectangle(x, y, boxWidth, boxHeight);
+        DrawBorderedRectangle(_spriteBatch!, backgroundRect, 1, new Color(15, 20, 35) * 0.85f, new Color(45, 75, 130));
+
+        var wind = Ecs.Systems.DronePhysicsSystem.CurrentWind;
+
+        // Draw compass circle in the box
+        var centerX = x + boxWidth - 35;
+        var centerY = y + boxHeight / 2;
+        
+        // Draw circular frame for the wind indicator using small dots
+        var segments = 12;
+        for (int i = 0; i < segments; i++)
+        {
+            var angle = MathHelper.TwoPi * i / segments;
+            var dx = centerX + (int)(MathF.Cos(angle) * 16f);
+            var dy = centerY + (int)(MathF.Sin(angle) * 16f);
+            _primitiveRenderer.FillRectangle(_spriteBatch!, new Rectangle(dx - 1, dy - 1, 2, 2), new Color(45, 75, 130) * 0.6f);
+        }
+
+        // Draw wind arrow (XZ maps to screen XY)
+        var windDir = new Vector2(wind.X, wind.Z);
+        var windLen = windDir.Length();
+        if (windLen > 0.05f)
+        {
+            windDir.Normalize();
+            var arrowLength = Math.Min(16f, windLen * 3.5f);
+            var endPoint = new Vector2(centerX, centerY) + windDir * arrowLength;
+
+            // Draw line as dotted points
+            var points = 12;
+            for (int i = 0; i <= points; i++)
+            {
+                var pt = Vector2.Lerp(new Vector2(centerX, centerY), endPoint, i / (float)points);
+                _primitiveRenderer.FillRectangle(_spriteBatch!, new Rectangle((int)pt.X - 1, (int)pt.Y - 1, 2, 2), new Color(100, 220, 255));
+            }
+
+            // Draw arrowhead
+            _primitiveRenderer.FillRectangle(_spriteBatch!, new Rectangle((int)endPoint.X - 2, (int)endPoint.Y - 2, 4, 4), new Color(100, 220, 255));
+        }
+
+        // Draw Wind Velocity HUD gauge
+        var barX = x + 12;
+        var barY = y + boxHeight - 20;
+        var barMaxW = 60;
+        var barH = 5;
+        
+        var maxWindStrength = 6.0f;
+        var currentWindStrengthPercent = MathHelper.Clamp(windLen / maxWindStrength, 0f, 1f);
+        var currentBarW = (int)(barMaxW * currentWindStrengthPercent);
+
+        _primitiveRenderer.FillRectangle(_spriteBatch!, new Rectangle(barX, barY, barMaxW, barH), new Color(40, 40, 40));
+        _primitiveRenderer.FillRectangle(_spriteBatch!, new Rectangle(barX, barY, currentBarW, barH), new Color(100, 200, 255));
+    }
+
+    private void DrawExplosions3D(GraphicsDevice graphicsDevice, BasicEffect effect)
+    {
+        if (_unitSpherePositions.Length == 0 || _unitSphereIndices.Length == 0)
+        {
+            return;
+        }
+
+        var previousBlend = graphicsDevice.BlendState;
+        var previousDepth = graphicsDevice.DepthStencilState;
+
+        graphicsDevice.BlendState = BlendState.AlphaBlend;
+        graphicsDevice.DepthStencilState = DepthStencilState.DepthRead;
+
+        foreach (var entity in _world.Query<TransformComponent, ExplosionVisualComponent>())
+        {
+            var transform = _world.GetComponent<TransformComponent>(entity);
+            var explosion = _world.GetComponent<ExplosionVisualComponent>(entity);
+
+            effect.World = Matrix.CreateScale(explosion.CurrentRadius) * Matrix.CreateTranslation(transform.Position);
+            
+            // Fade out as age increases
+            var progress = explosion.Age / explosion.MaxAge;
+            var alpha = 1f - progress;
+            var color = explosion.Color * alpha;
+            
+            var vertices = BuildSphereVertices(color);
+
+            foreach (var pass in effect.CurrentTechnique.Passes)
+            {
+                pass.Apply();
+                graphicsDevice.DrawUserIndexedPrimitives(
+                    PrimitiveType.TriangleList,
+                    vertices,
+                    0,
+                    vertices.Length,
+                    _unitSphereIndices,
+                    0,
+                    _unitSphereIndices.Length / 3);
+            }
+        }
+
+        graphicsDevice.DepthStencilState = previousDepth;
+        graphicsDevice.BlendState = previousBlend;
     }
 
     private void DrawPackageScreenMarkers(GraphicsDevice graphicsDevice)
