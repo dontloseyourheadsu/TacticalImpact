@@ -30,5 +30,32 @@ public sealed class WeaponComponent
     public bool IsReloading { get; set; } = false;
 
     // Upgrades
-    public int WeaponUpgradeLevel { get; set; } = 1;
+    public int DamageUpgradeLevel { get; set; } = 1;
+    public int FireRateUpgradeLevel { get; set; } = 1;
+    public int AmmoUpgradeLevel { get; set; } = 1;
+
+    public void UpgradeDamage()
+    {
+        DamageUpgradeLevel++;
+        Damage = MathF.Round(Damage * 1.25f, 1);
+        if (Type == WeaponType.BlindingLaser)
+        {
+            BlindDuration *= 1.15f;
+        }
+    }
+
+    public void UpgradeFireRate()
+    {
+        FireRateUpgradeLevel++;
+        CooldownSeconds = MathF.Max(0.05f, CooldownSeconds * 0.82f); // 18% cooldown reduction (faster firing)
+    }
+
+    public void UpgradeAmmo()
+    {
+        AmmoUpgradeLevel++;
+        var prevMax = MaxAmmo;
+        MaxAmmo = (int)MathF.Ceiling(MaxAmmo * 1.3f);
+        CurrentAmmo += (MaxAmmo - prevMax); // refill the new ammo capacity slot
+        ReloadTimeSeconds = MathF.Max(0.5f, ReloadTimeSeconds * 0.88f); // 12% faster reload speed
+    }
 }

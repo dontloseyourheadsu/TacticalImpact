@@ -73,12 +73,16 @@ public sealed class ProjectileCollisionSystem : ISystem
     {
         var stats = world.GetComponent<DroneStatsComponent>(droneEntity);
         
-        // 1. Damage calculations
+        // 1. Damage calculations with Armor mitigation
         if (projectile.Damage > 0f)
         {
-            var damageToShield = MathF.Min(stats.CurrentShield, projectile.Damage);
+            // Armor formula: 1 / (1 + 0.20 * (ArmorLevel - 1))
+            var mitigation = 1.0f / (1.0f + (stats.ArmorUpgradeLevel - 1) * 0.20f);
+            var mitigatedDamage = projectile.Damage * mitigation;
+
+            var damageToShield = MathF.Min(stats.CurrentShield, mitigatedDamage);
             stats.CurrentShield -= damageToShield;
-            var remainingDamage = projectile.Damage - damageToShield;
+            var remainingDamage = mitigatedDamage - damageToShield;
             stats.CurrentHealth = MathF.Max(0f, stats.CurrentHealth - remainingDamage);
             
             // Reset shield recharge cooldown
@@ -124,13 +128,17 @@ public sealed class ProjectileCollisionSystem : ISystem
             // Linear falloff based on distance
             var falloff = 1f - (distance / radius);
             
-            // Damage calculations
+            // Damage calculations with Armor mitigation
             var damage = maxDamage * falloff;
             if (damage > 0f)
             {
-                var damageToShield = MathF.Min(stats.CurrentShield, damage);
+                // Armor formula: 1 / (1 + 0.20 * (ArmorLevel - 1))
+                var mitigation = 1.0f / (1.0f + (stats.ArmorUpgradeLevel - 1) * 0.20f);
+                var mitigatedDamage = damage * mitigation;
+
+                var damageToShield = MathF.Min(stats.CurrentShield, mitigatedDamage);
                 stats.CurrentShield -= damageToShield;
-                var remainingDamage = damage - damageToShield;
+                var remainingDamage = mitigatedDamage - damageToShield;
                 stats.CurrentHealth = MathF.Max(0f, stats.CurrentHealth - remainingDamage);
                 
                 stats.ShieldCooldown = stats.ShieldRechargeDelay;
