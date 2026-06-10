@@ -82,6 +82,20 @@ public sealed class DroneShootingSystem : ISystem
             ? Vector3.Normalize(toTarget)
             : Vector3.Forward;
 
+        // Check if the shooter is fully blinded. If so, add significant dispersion to the shot direction.
+        var isBlinded = world.HasComponent<DroneSensorComponent>(shooterEntity) &&
+                        world.GetComponent<DroneSensorComponent>(shooterEntity).IsFullyBlinded;
+        if (isBlinded)
+        {
+            var random = System.Random.Shared;
+            var spread = new Vector3(
+                (float)(random.NextDouble() - 0.5) * 0.75f,
+                (float)(random.NextDouble() - 0.5) * 0.25f,
+                (float)(random.NextDouble() - 0.5) * 0.75f
+            );
+            direction = Vector3.Normalize(direction + spread);
+        }
+
         var projectileEntity = world.CreateEntity();
         world.AddComponent(projectileEntity, new TransformComponent
         {
@@ -91,12 +105,24 @@ public sealed class DroneShootingSystem : ISystem
         world.AddComponent(projectileEntity, new ProjectileComponent
         {
             Velocity = direction * weapon.ProjectileSpeed,
-            RemainingLifeSeconds = weapon.ProjectileLifeSeconds
+            RemainingLifeSeconds = weapon.ProjectileLifeSeconds,
+            ShooterEntity = shooterEntity,
+            Damage = weapon.Damage,
+            IsLightProjectile = weapon.Type == WeaponType.BlindingLaser,
+            BlindDuration = weapon.BlindDuration
         });
+
+        // Set projectile visual properties based on weapon type
+        var color = weapon.Type == WeaponType.BlindingLaser 
+            ? new Color(255, 245, 120) // Bright yellow light laser
+            : new Color(255, 110, 50); // Red/Orange plasma charge
+
+        var radius = weapon.Type == WeaponType.BlindingLaser ? 0.12f : 0.22f;
+
         world.AddComponent(projectileEntity, new ProjectileRenderComponent
         {
-            Radius = 0.18f,
-            Color = new Color(255, 186, 72)
+            Radius = radius,
+            Color = color
         });
 
         weapon.CooldownRemaining = weapon.CooldownSeconds;
