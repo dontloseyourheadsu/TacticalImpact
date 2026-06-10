@@ -26,6 +26,7 @@ public sealed class PlaygroundMode : IGameMode
     private short[] _unitSphereIndices = [];
     private bool _loaded;
     private MouseState _previousMouseState;
+    private KeyboardState _previousKeyboardState;
     private double _totalTimeSeconds;
     private double _lastLeftClickTimeSeconds = -5d;
     private Point _lastLeftClickPosition;
@@ -190,7 +191,147 @@ public sealed class PlaygroundMode : IGameMode
             _featureModule.SelectionSystem.ClearSelection(_world);
         }
 
+        // Weapon Switching Controls
+        if (PressedNow(keyboard, Keys.D1)) SwitchSelectedDroneWeapon(WeaponType.PlasmaCannon);
+        if (PressedNow(keyboard, Keys.D2)) SwitchSelectedDroneWeapon(WeaponType.BlindingLaser);
+        if (PressedNow(keyboard, Keys.D3)) SwitchSelectedDroneWeapon(WeaponType.MachineGun);
+        if (PressedNow(keyboard, Keys.D4)) SwitchSelectedDroneWeapon(WeaponType.MissileLauncher);
+        if (PressedNow(keyboard, Keys.D5)) SwitchSelectedDroneWeapon(WeaponType.GrenadeLauncher);
+
+        // Upgrading selected drone & weapon
+        if (PressedNow(keyboard, Keys.U)) UpgradeSelectedDrone();
+        if (PressedNow(keyboard, Keys.I)) UpgradeSelectedWeapon();
+
+        // Manual Reload trigger
+        if (PressedNow(keyboard, Keys.Y))
+        {
+            var selected = GetSelectedDroneEntity();
+            if (selected != -1)
+            {
+                _featureModule.ShootingSystem.TriggerReload(_world, selected);
+            }
+        }
+
         _previousMouseState = mouse;
+        _previousKeyboardState = keyboard;
+    }
+
+    private bool PressedNow(KeyboardState current, Keys key)
+    {
+        return current.IsKeyDown(key) && !_previousKeyboardState.IsKeyDown(key);
+    }
+
+    private void SwitchSelectedDroneWeapon(WeaponType type)
+    {
+        var selected = GetSelectedDroneEntity();
+        if (selected == -1 || !_world.HasComponent<WeaponComponent>(selected))
+        {
+            return;
+        }
+
+        var weapon = _world.GetComponent<WeaponComponent>(selected);
+        weapon.Type = type;
+
+        // Reset base weapon stats but retain upgrade levels
+        switch (type)
+        {
+            case WeaponType.PlasmaCannon:
+                weapon.CooldownSeconds = 0.35f;
+                weapon.ProjectileSpeed = 16f;
+                weapon.ProjectileLifeSeconds = 2.25f;
+                weapon.Damage = 15f;
+                weapon.MaxAmmo = 10;
+                weapon.ReloadTimeSeconds = 2.0f;
+                break;
+            case WeaponType.BlindingLaser:
+                weapon.CooldownSeconds = 0.15f;
+                weapon.ProjectileSpeed = 24f;
+                weapon.ProjectileLifeSeconds = 1.2f;
+                weapon.Damage = 2f;
+                weapon.BlindDuration = 4.0f;
+                weapon.MaxAmmo = 15;
+                weapon.ReloadTimeSeconds = 1.5f;
+                break;
+            case WeaponType.MachineGun:
+                weapon.CooldownSeconds = 0.08f;
+                weapon.ProjectileSpeed = 22f;
+                weapon.ProjectileLifeSeconds = 1.0f;
+                weapon.Damage = 4f;
+                weapon.MaxAmmo = 50;
+                weapon.ReloadTimeSeconds = 2.5f;
+                break;
+            case WeaponType.MissileLauncher:
+                weapon.CooldownSeconds = 1.2f;
+                weapon.ProjectileSpeed = 10f;
+                weapon.ProjectileLifeSeconds = 3.5f;
+                weapon.Damage = 25f;
+                weapon.MaxAmmo = 3;
+                weapon.ReloadTimeSeconds = 3.5f;
+                break;
+            case WeaponType.GrenadeLauncher:
+                weapon.CooldownSeconds = 0.75f;
+                weapon.ProjectileSpeed = 12f;
+                weapon.ProjectileLifeSeconds = 2.0f;
+                weapon.Damage = 20f;
+                weapon.MaxAmmo = 5;
+                weapon.ReloadTimeSeconds = 3.0f;
+                break;
+        }
+
+        // Apply stats scaling multipliers based on upgrades
+        for (var i = 1; i < weapon.DamageUpgradeLevel; i++)
+        {
+            weapon.Damage = MathF.Round(weapon.Damage * 1.25f, 1);
+            if (weapon.Type == WeaponType.BlindingLaser)
+            {
+                weapon.BlindDuration *= 1.15f;
+            }
+        }
+        for (var i = 1; i < weapon.FireRateUpgradeLevel; i++)
+        {
+            weapon.CooldownSeconds = MathF.Max(0.05f, weapon.CooldownSeconds * 0.82f);
+        }
+        for (var i = 1; i < weapon.AmmoUpgradeLevel; i++)
+        {
+            weapon.MaxAmmo = (int)MathF.Ceiling(weapon.MaxAmmo * 1.3f);
+            weapon.ReloadTimeSeconds = MathF.Max(0.5f, weapon.ReloadTimeSeconds * 0.88f);
+        }
+
+        weapon.CurrentAmmo = weapon.MaxAmmo;
+        weapon.IsReloading = false;
+        weapon.CooldownRemaining = 0f;
+    }
+
+    private void UpgradeSelectedDrone()
+    {
+        var selected = GetSelectedDroneEntity();
+        if (selected == -1 || !_world.HasComponent<DroneStatsComponent>(selected))
+        {
+            return;
+        }
+
+        var stats = _world.GetComponent<DroneStatsComponent>(selected);
+        stats.UpgradeHealth();
+        stats.UpgradeShield();
+        stats.UpgradeArmor();
+        stats.UpgradeEngine(_world, selected);
+    }
+
+    private void UpgradeSelectedWeapon()
+    {
+        var selected = GetSelectedDroneEntity();
+        if (selected == -1 || !_world.HasComponent<WeaponComponent>(selected))
+        {
+            return;
+        }
+
+        var weapon = _world.GetComponent<WeaponComponent>(selected);
+        weapon.UpgradeDamage();
+        weapon.UpgradeFireRate();
+        weapon.UpgradeAmmo();
+        
+        // Also refill ammo
+        weapon.CurrentAmmo = weapon.MaxAmmo;
     }
 
     private void ProcessLeftClick(Point pointerPosition, bool isDoubleClick)
@@ -506,7 +647,138 @@ public sealed class PlaygroundMode : IGameMode
         // Draw Wind HUD
         DrawWindHUD(graphicsDevice);
 
+        // Draw Selected Drone HUD
+        DrawSelectedDroneHUD(graphicsDevice);
+
         _spriteBatch.End();
+    }
+
+    private void DrawSelectedDroneHUD(GraphicsDevice graphicsDevice)
+    {
+        var selected = GetSelectedDroneEntity();
+        if (selected == -1 || _spriteBatch is null)
+        {
+            return;
+        }
+
+        var viewport = graphicsDevice.Viewport;
+        var boxWidth = 240;
+        var boxHeight = 110;
+        var x = 10;
+        var y = viewport.Height - boxHeight - 10;
+
+        var bgRect = new Rectangle(x, y, boxWidth, boxHeight);
+        DrawBorderedRectangle(_spriteBatch, bgRect, 1, new Color(12, 16, 26) * 0.9f, new Color(45, 120, 200));
+
+        // Draw weapon color tag
+        Color weaponColor = Color.Gray;
+        if (_world.HasComponent<WeaponComponent>(selected))
+        {
+            var weapon = _world.GetComponent<WeaponComponent>(selected);
+            switch (weapon.Type)
+            {
+                case WeaponType.PlasmaCannon: weaponColor = new Color(255, 110, 50); break;
+                case WeaponType.BlindingLaser: weaponColor = new Color(255, 245, 120); break;
+                case WeaponType.MachineGun: weaponColor = new Color(200, 240, 255); break;
+                case WeaponType.MissileLauncher: weaponColor = new Color(100, 255, 120); break;
+                case WeaponType.GrenadeLauncher: weaponColor = new Color(170, 170, 170); break;
+            }
+        }
+        _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(x + 10, y + 10, 10, 10), weaponColor);
+
+        // 1. Health and Shield Bars
+        if (_world.HasComponent<DroneStatsComponent>(selected))
+        {
+            var stats = _world.GetComponent<DroneStatsComponent>(selected);
+            
+            var barW = 185;
+            var barH = 6;
+            var barX = x + 30;
+            
+            // Health
+            _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(barX, y + 11, barW, barH), new Color(40, 40, 40));
+            var hpPercent = MathHelper.Clamp(stats.CurrentHealth / stats.MaxHealth, 0f, 1f);
+            _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(barX, y + 11, (int)(barW * hpPercent), barH), new Color(50, 220, 80));
+
+            // Shield
+            _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(barX, y + 21, barW, barH), new Color(40, 40, 40));
+            if (stats.MaxShield > 0f)
+            {
+                var shPercent = MathHelper.Clamp(stats.CurrentShield / stats.MaxShield, 0f, 1f);
+                _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(barX, y + 21, (int)(barW * shPercent), barH), new Color(50, 150, 255));
+            }
+
+            // 2. Upgrades HUD display
+            // Draw drone upgrade levels (Health, Shield, Armor, Engine) as green/blue/yellow dots
+            var dotY = y + 36;
+            // Label box: green
+            _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(x + 10, dotY + 2, 10, 6), new Color(100, 255, 150));
+            
+            // Health dots
+            DrawLevelDots(x + 30, dotY, stats.HealthUpgradeLevel, new Color(50, 220, 80));
+            // Shield dots
+            DrawLevelDots(x + 80, dotY, stats.ShieldUpgradeLevel, new Color(50, 150, 255));
+            // Armor dots
+            DrawLevelDots(x + 130, dotY, stats.ArmorUpgradeLevel, new Color(200, 200, 100));
+            // Engine dots
+            DrawLevelDots(x + 180, dotY, stats.EngineUpgradeLevel, new Color(255, 100, 100));
+        }
+
+        // 3. Weapon Stats & Ammo / Reload progress
+        if (_world.HasComponent<WeaponComponent>(selected))
+        {
+            var weapon = _world.GetComponent<WeaponComponent>(selected);
+            var ammoY = y + 54;
+            
+            // Draw weapon upgrades (Damage, FireRate, Ammo) as orange dots
+            // Label box: orange
+            _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(x + 10, ammoY + 2, 10, 6), new Color(255, 180, 100));
+            
+            DrawLevelDots(x + 30, ammoY, weapon.DamageUpgradeLevel, new Color(255, 110, 50));
+            DrawLevelDots(x + 80, ammoY, weapon.FireRateUpgradeLevel, new Color(255, 230, 80));
+            DrawLevelDots(x + 130, ammoY, weapon.AmmoUpgradeLevel, new Color(145, 235, 255));
+
+            // Reload / Ammunition display
+            var reloadY = y + 72;
+            if (weapon.IsReloading)
+            {
+                // Reload progress bar
+                _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(x + 30, reloadY + 2, 185, 6), new Color(40, 40, 40));
+                var reloadProgress = MathHelper.Clamp(1f - (weapon.ReloadRemainingSeconds / weapon.ReloadTimeSeconds), 0f, 1f);
+                _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(x + 30, reloadY + 2, (int)(185 * reloadProgress), 6), new Color(255, 240, 100));
+            }
+            else
+            {
+                // Draw ammunition tick lines
+                var ammoW = 3;
+                var spacing = 2;
+                var totalW = weapon.MaxAmmo * (ammoW + spacing) - spacing;
+                
+                // Keep it bounded
+                if (totalW > 185)
+                {
+                    ammoW = Math.Max(1, 185 / weapon.MaxAmmo - 1);
+                    spacing = 1;
+                }
+
+                for (var i = 0; i < weapon.MaxAmmo; i++)
+                {
+                    var drawX = x + 30 + i * (ammoW + spacing);
+                    var col = i < weapon.CurrentAmmo ? weaponColor : new Color(50, 50, 50);
+                    _primitiveRenderer.FillRectangle(_spriteBatch, new Rectangle(drawX, reloadY, ammoW, 8), col);
+                }
+            }
+        }
+    }
+
+    private void DrawLevelDots(int startX, int startY, int level, Color color)
+    {
+        // Draw up to 5 little square dots representing upgrade level
+        var maxDots = Math.Min(5, level);
+        for (var i = 0; i < maxDots; i++)
+        {
+            _primitiveRenderer.FillRectangle(_spriteBatch!, new Rectangle(startX + i * 8, startY + 2, 5, 5), color);
+        }
     }
 
     private void DrawWindHUD(GraphicsDevice graphicsDevice)

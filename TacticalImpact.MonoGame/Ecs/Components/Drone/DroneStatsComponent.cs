@@ -20,4 +20,52 @@ public sealed class DroneStatsComponent
     public float MaxEnergy { get; set; } = 100f;
     public float CurrentEnergy { get; set; } = 100f;
     public float EnergyRechargeRate { get; set; } = 5f; // Units per second
+
+    // Upgrade levels (starting at 1)
+    public int HealthUpgradeLevel { get; set; } = 1;
+    public int ShieldUpgradeLevel { get; set; } = 1;
+    public int ArmorUpgradeLevel { get; set; } = 1;
+    public int EngineUpgradeLevel { get; set; } = 1;
+
+    public void UpgradeHealth()
+    {
+        HealthUpgradeLevel++;
+        var prevMax = MaxHealth;
+        MaxHealth = MathF.Round(MaxHealth * 1.25f);
+        CurrentHealth += (MaxHealth - prevMax); // Heal for the difference
+    }
+
+    public void UpgradeShield()
+    {
+        ShieldUpgradeLevel++;
+        var prevMax = MaxShield;
+        MaxShield = MathF.Round(MaxShield * 1.25f);
+        CurrentShield += (MaxShield - prevMax); // Shield increase difference
+        ShieldRechargeRate *= 1.2f;
+    }
+
+    public void UpgradeArmor()
+    {
+        ArmorUpgradeLevel++;
+        // Armor increases weight/density slightly to resist pushbacks
+        Weight *= 1.1f;
+    }
+
+    public void UpgradeEngine(EcsWorld world, int entity)
+    {
+        EngineUpgradeLevel++;
+        
+        if (world.HasComponent<DroneMotionComponent>(entity))
+        {
+            var motion = world.GetComponent<DroneMotionComponent>(entity);
+            motion.MoveSpeed *= 1.22f;
+        }
+        
+        if (world.HasComponent<DronePhysicsComponent>(entity))
+        {
+            var physics = world.GetComponent<DronePhysicsComponent>(entity);
+            physics.PositionGain *= 1.15f;
+            physics.VelocityGain *= 1.15f;
+        }
+    }
 }
