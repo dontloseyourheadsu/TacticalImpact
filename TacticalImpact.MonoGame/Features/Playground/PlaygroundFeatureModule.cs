@@ -25,7 +25,9 @@ public sealed class PlaygroundFeatureModule
             new DroneCollisionResolutionSystem(),
             new DroneZoneDetectionSystem(),
             new ProjectileMovementSystem(),
-            new ProjectileLifetimeSystem()
+            new ProjectileLifetimeSystem(),
+            new ProjectileCollisionSystem(),
+            new DroneStatsUpdateSystem()
         ];
     }
 
